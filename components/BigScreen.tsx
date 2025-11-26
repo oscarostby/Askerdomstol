@@ -1,8 +1,11 @@
+
 import React, { useEffect, useState, useRef } from 'react';
-import { Gavel, Scale, Shield, User as UserIcon, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Gavel, Scale, Shield, User as UserIcon, AlertTriangle, Mic } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from 'recharts';
 import { Case, CaseStatus, User, Role, Vote } from '../types';
 import { QRCodeSVG } from 'qrcode.react';
+import { db } from '../services/firebase';
+import { ref, onValue, off, set } from 'firebase/database';
 
 interface BigScreenProps {
   pin: string;
@@ -12,8 +15,30 @@ interface BigScreenProps {
 
 export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) => {
   // Split users
-  const officials = users.filter(u => u.role === Role.JUDGE || u.role === Role.LAWYER);
   const jury = users.filter(u => u.role === Role.JURY);
+  
+  // Protests State
+  const [activeProtests, setActiveProtests] = useState<{name: string, uid: string}[]>([]);
+
+  // Listen for protests explicitly for visual stacking
+  useEffect(() => {
+    const protestsRef = ref(db, `sessions/${pin}/protests`);
+    const listener = onValue(protestsRef, (snapshot) => {
+        if (snapshot.exists()) {
+            const data = snapshot.val();
+            // Map uids to names
+            const protestList = Object.keys(data).map(uid => {
+                const user = users.find(u => u.uid === uid);
+                return { name: user ? user.name : 'Ukjent', uid };
+            });
+            setActiveProtests(protestList);
+        } else {
+            setActiveProtests([]);
+        }
+    });
+    return () => off(protestsRef, listener);
+  }, [pin, users]);
+
 
   // Voting data
   const votes: Vote[] = activeCase?.votes ? Object.values(activeCase.votes) : [];
@@ -38,11 +63,9 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
       (activeCase?.status === CaseStatus.GUILTY || activeCase?.status === CaseStatus.NOT_GUILTY) &&
       prevStatusRef.current === CaseStatus.VOTING
     ) {
-      // Start Countdown
       setCountdown(5);
       setShowVerdict(false);
     } else if (activeCase?.status === CaseStatus.GUILTY || activeCase?.status === CaseStatus.NOT_GUILTY) {
-      // If we load directly into a verdict (refresh), show immediately
       if (countdown === null) setShowVerdict(true);
     } else {
       setShowVerdict(false);
@@ -65,64 +88,51 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
     }
   }, [countdown]);
 
-  // --- LOBBY VIEW (No Active Case) ---
+  // --- LOBBY VIEW ---
   if (!activeCase) {
     return (
-      <div className="flex flex-col h-full bg-gradient-to-br from-asker-navy via-slate-900 to-asker-navy relative overflow-hidden">
-        {/* Background Anim */}
-        <div className="absolute inset-0 z-0 opacity-20">
-             <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 animate-pulse"></div>
-        </div>
-
-        {/* Header */}
-        <header className="p-8 flex justify-between items-center relative z-10">
-            <img src="https://asker-gui.vercel.app/images/standard_832px-Asker_SK_logo.svg.png" alt="Asker Logo" className="h-24 drop-shadow-2xl" />
-            <div className="bg-black/40 px-6 py-2 rounded-full border border-white/10 backdrop-blur-md">
-                 <h1 className="text-2xl font-serif font-bold tracking-wider text-asker-gold uppercase">Asker Rettsråd</h1>
+      <div className="flex flex-col h-full bg-[#05080a] relative overflow-hidden">
+        
+        <header className="p-10 flex justify-between items-center z-10">
+            <div className="flex items-center gap-6">
+                 <img src="https://asker-gui.vercel.app/images/standard_832px-Asker_SK_logo.svg.png" alt="Asker Logo" className="h-20" />
+                 <div className="h-12 w-px bg-white/10"></div>
+                 <h1 className="text-3xl font-serif font-bold tracking-wider text-white uppercase">Asker Rettsråd</h1>
+            </div>
+            <div className="bg-asker-blue/10 px-6 py-2 rounded border border-asker-blue/20">
+                 <span className="text-asker-blue font-mono font-bold tracking-widest uppercase">Lobby Status: Åpen</span>
             </div>
         </header>
 
-        {/* Lobby Content */}
-        <div className="flex-1 flex flex-col items-center justify-center p-8 relative z-10">
-            
-            <div className="flex items-start gap-16 mb-16 animate-in zoom-in duration-500">
-                 {/* QR Card */}
-                 <div className="bg-white p-4 rounded-3xl shadow-[0_0_50px_rgba(0,110,182,0.3)] transform -rotate-2">
-                     <QRCodeSVG value={`${window.location.origin}/#/?pin=${pin}`} size={300} />
-                     <div className="text-center mt-4">
-                         <p className="text-slate-900 font-bold text-lg">Scan for å delta</p>
-                     </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-8 z-10">
+            <div className="flex items-center gap-20 mb-20">
+                 <div className="bg-white p-6 rounded-xl shadow-2xl">
+                     <QRCodeSVG value={`${window.location.origin}/#/?pin=${pin}`} size={280} />
                  </div>
-
-                 {/* PIN Card */}
-                 <div className="flex flex-col items-start space-y-6">
+                 <div className="flex flex-col space-y-8">
                      <div>
-                         <p className="text-asker-blue text-2xl font-bold uppercase tracking-widest mb-2">Gå til</p>
-                         <p className="text-4xl text-white font-mono">{window.location.host}</p>
+                         <p className="text-slate-400 text-sm font-bold uppercase tracking-[0.2em] mb-2">Bli med på mobil</p>
+                         <p className="text-5xl text-white font-serif">{window.location.host}</p>
                      </div>
                      <div>
-                         <p className="text-asker-blue text-2xl font-bold uppercase tracking-widest mb-2">Game PIN</p>
-                         <p className="text-9xl font-black text-white tracking-tighter drop-shadow-lg font-mono">{pin}</p>
+                         <p className="text-asker-blue text-sm font-bold uppercase tracking-[0.2em] mb-2">Session PIN</p>
+                         <p className="text-9xl font-bold text-white tracking-tighter font-mono tabular-nums">{pin}</p>
                      </div>
                  </div>
             </div>
 
-            {/* Players Grid (Kahoot style) */}
-            <div className="w-full max-w-6xl">
-                 <div className="flex justify-between items-end mb-4 border-b border-white/10 pb-2">
-                     <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                         <UserIcon className="text-asker-gold" />
+            <div className="w-full max-w-7xl">
+                 <div className="flex justify-between items-end mb-6 border-b border-white/5 pb-4">
+                     <h2 className="text-xl font-medium text-slate-300 flex items-center gap-3">
+                         <UserIcon size={20} />
                          Deltakere ({users.length})
                      </h2>
-                     <p className="text-slate-400 animate-pulse">Venter på spillere...</p>
                  </div>
-                 
-                 <div className="flex flex-wrap gap-4 justify-center">
+                 <div className="flex flex-wrap gap-3">
                      {users.map((u, i) => (
                          <div 
                             key={u.uid} 
-                            className="bg-asker-blue text-white px-6 py-3 rounded-full font-bold shadow-lg animate-in zoom-in spring-duration-300 border-2 border-white/20"
-                            style={{ animationDelay: `${i * 50}ms` }}
+                            className="bg-[#0f151a] text-slate-200 px-5 py-2 rounded border border-white/5 font-medium text-lg"
                          >
                              {u.name}
                          </div>
@@ -134,137 +144,155 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
     );
   }
 
-  // --- ACTIVE CASE VIEW ---
-  const isDefendantFocus = activeCase.focusMode === 'DEFENDANT';
+  // --- COURTROOM LAYOUT ---
+  const speaker = activeCase.speaker || 'JUDGE'; // JUDGE, DEFENSE, WITNESS
+  const isVoting = activeCase.status === CaseStatus.VOTING;
+  const isFinished = activeCase.status === CaseStatus.GUILTY || activeCase.status === CaseStatus.NOT_GUILTY;
 
   return (
-    <div className="flex flex-col h-full p-6 relative overflow-hidden transition-all duration-700 ease-in-out">
-        {/* Top Podium */}
-        <div className={`flex justify-center mb-8 relative z-20 transition-all duration-700 ${isDefendantFocus ? 'opacity-20 translate-y-[-50px]' : 'opacity-100'}`}>
-             <div className="glass-panel px-12 py-4 rounded-b-2xl border-t-0 text-center shadow-[0_10px_40px_rgba(0,0,0,0.5)] transform translate-y-[-24px]">
-                 <div className="text-asker-gold font-bold uppercase tracking-widest text-sm mb-1">Dommerens Podium</div>
-                 <div className="text-2xl font-serif text-white">Sak #{activeCase.id.substring(activeCase.id.length - 4)}</div>
+    <div className="flex flex-col h-full p-6 relative overflow-hidden bg-[#05080a]">
+        
+        {/* PROTEST OVERLAY (Stack) */}
+        <div className="absolute top-24 right-12 z-50 flex flex-col gap-3 pointer-events-none">
+            {activeProtests.map((p, i) => (
+                <div key={p.uid} className="transition-all duration-300 flex items-center gap-4 bg-asker-red text-white pl-4 pr-8 py-4 rounded shadow-2xl border-l-4 border-white">
+                    <AlertTriangle size={32} />
+                    <div>
+                        <h2 className="text-lg font-bold uppercase tracking-wider">Protest</h2>
+                        <p className="text-xl font-serif italic">{p.name}</p>
+                    </div>
+                </div>
+            ))}
+        </div>
+
+        {/* --- ZONE 1: JUDGE (Top Center) --- */}
+        <div className={`flex justify-center mb-8 transition-opacity duration-500 ${speaker === 'JUDGE' ? 'opacity-100' : 'opacity-50'}`}>
+             <div className="text-center">
+                 <div className="inline-block bg-[#0a0e12] px-12 py-4 rounded-b-xl border border-t-0 border-white/10 shadow-xl">
+                     <div className="text-asker-gold font-bold uppercase tracking-[0.3em] text-xs mb-1">Dommerens Podium</div>
+                     <div className="text-3xl font-serif text-white font-medium">Sak #{activeCase.id.substring(activeCase.id.length - 4)}</div>
+                 </div>
              </div>
         </div>
 
-        <div className="grid grid-cols-12 gap-8 flex-1 relative z-10">
-            {/* Left: Defendant Details */}
-            <div 
-                className={`
-                    glass-panel rounded-2xl p-8 flex flex-col border-l-4 border-l-asker-blue relative overflow-hidden transition-all duration-700 ease-in-out
-                    ${isDefendantFocus ? 'col-span-12 scale-105 shadow-[0_0_100px_rgba(0,110,182,0.4)] z-50' : 'col-span-4'}
-                `}
-            >
-                <div className="absolute top-0 right-0 p-4 opacity-10">
-                    <Scale size={120} />
-                </div>
-                <h2 className="text-slate-400 uppercase tracking-wider text-sm font-bold mb-2">Tiltalte</h2>
-                <div className={`${isDefendantFocus ? 'text-8xl' : 'text-5xl'} font-bold text-white mb-6 leading-tight break-words transition-all duration-700`}>
-                    {activeCase.defendantName}
-                </div>
-                
-                <div className="space-y-6 mt-4">
-                    <div>
-                        <h3 className="text-asker-blue uppercase tracking-wider text-xs font-bold mb-1">Anklage</h3>
-                        <p className={`font-serif text-slate-200 transition-all duration-700 ${isDefendantFocus ? 'text-5xl leading-tight' : 'text-2xl'}`}>
-                            {activeCase.title}
-                        </p>
+        {/* --- MAIN STAGE --- */}
+        <div className="flex-1 grid grid-cols-2 gap-12 relative z-10 px-12 pb-12">
+            
+            {/* --- ZONE 2: DEFENSE (Left) --- */}
+            <div className={`relative transition-all duration-500 rounded-2xl overflow-hidden border ${speaker === 'DEFENSE' ? 'bg-[#0a0e12] border-asker-blue shadow-[0_0_50px_rgba(0,110,182,0.1)]' : 'bg-[#0a0e12]/50 border-white/5 opacity-60'}`}>
+                <div className="h-full p-10 flex flex-col">
+                    <div className="flex justify-between items-start mb-8">
+                        <div>
+                             <h2 className="text-slate-500 uppercase tracking-widest text-xs font-bold mb-2">Tiltalte</h2>
+                             <div className="text-5xl font-bold text-white">{activeCase.defendantName}</div>
+                        </div>
+                        {speaker === 'DEFENSE' && <Mic size={32} className="text-asker-blue" />}
                     </div>
-                    <div>
-                        <h3 className="text-asker-blue uppercase tracking-wider text-xs font-bold mb-1">Beskrivelse</h3>
-                        <p className={`text-slate-400 leading-relaxed transition-all duration-700 ${isDefendantFocus ? 'text-2xl' : 'text-lg'}`}>
-                            {activeCase.description}
-                        </p>
-                    </div>
-                    <div className="mt-auto pt-8 border-t border-white/10">
-                        <h3 className="text-asker-red uppercase tracking-wider text-xs font-bold mb-1">Bot</h3>
-                        <p className="text-4xl font-mono text-asker-red">{activeCase.amount},- NOK</p>
+                    
+                    <div className="space-y-10 mt-auto">
+                        <div className="border-l-2 border-asker-blue pl-6">
+                            <h3 className="text-asker-blue uppercase tracking-wider text-xs font-bold mb-2">Anklage</h3>
+                            <p className="font-serif text-3xl text-slate-200 leading-snug">
+                                {activeCase.title}
+                            </p>
+                        </div>
+                        <div className="pl-6 border-l-2 border-white/10">
+                            <h3 className="text-slate-500 uppercase tracking-wider text-xs font-bold mb-2">Detaljer</h3>
+                            <p className="text-slate-300 text-xl leading-relaxed">
+                                {activeCase.description}
+                            </p>
+                        </div>
+                        <div className="pl-6">
+                            <h3 className="text-asker-red uppercase tracking-wider text-xs font-bold mb-1">Strafferamme</h3>
+                            <p className="text-5xl font-mono text-asker-red font-medium tracking-tight">{activeCase.amount},-</p>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {/* Center: Live Action / Voting */}
-            <div className={`col-span-8 glass-panel rounded-2xl p-8 flex flex-col justify-center items-center relative overflow-hidden transition-all duration-500 ${isDefendantFocus ? 'opacity-0 scale-90 translate-x-20' : 'opacity-100'}`}>
-                
-                {/* IDLE: Presentation */}
-                {activeCase.status === CaseStatus.IDLE && (
-                    <div className="text-center animate-in fade-in zoom-in duration-500">
-                        <Scale size={80} className="mx-auto text-asker-blue mb-6 opacity-80" />
-                        <h2 className="text-5xl font-bold text-white mb-4">Retten er satt</h2>
-                        <p className="text-2xl text-slate-300">Anklager leser opp tiltalen...</p>
-                    </div>
-                )}
-
-                {/* VOTING: Secret Count */}
-                {activeCase.status === CaseStatus.VOTING && (
-                    <div className="w-full h-full flex flex-col items-center justify-center animate-in fade-in">
-                        <h2 className="text-4xl font-bold text-center mb-12 text-asker-gold animate-pulse uppercase tracking-widest">Juryen stemmer</h2>
-                        
-                        {/* Big Counter */}
-                        <div className="relative mb-8">
-                             <div className="text-[10rem] font-black text-white leading-none font-mono drop-shadow-[0_0_30px_rgba(0,110,182,0.5)]">
-                                 {totalVotes}
-                             </div>
-                             <div className="absolute top-0 right-[-40px] text-4xl text-slate-500 font-bold">
-                                 / {totalJury > 0 ? totalJury : '?'}
-                             </div>
-                        </div>
-                        <p className="text-xl text-slate-400">Stemmer avgitt</p>
-
-                        <div className="mt-12 flex gap-4">
-                             <div className="w-3 h-3 rounded-full bg-white animate-bounce" style={{ animationDelay: '0ms'}}></div>
-                             <div className="w-3 h-3 rounded-full bg-white animate-bounce" style={{ animationDelay: '150ms'}}></div>
-                             <div className="w-3 h-3 rounded-full bg-white animate-bounce" style={{ animationDelay: '300ms'}}></div>
-                        </div>
-                    </div>
-                )}
-
-                {/* COUNTDOWN: Dramatic 5s */}
-                {countdown !== null && countdown > 0 && (
-                    <div className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center backdrop-blur-sm">
-                        <div className="text-[15rem] font-black text-asker-gold animate-ping opacity-90 font-mono">
-                            {countdown}
-                        </div>
-                    </div>
-                )}
-
-                {/* VERDICT: Reveal */}
-                {(activeCase.status === CaseStatus.GUILTY || activeCase.status === CaseStatus.NOT_GUILTY) && showVerdict && (
-                    <div className="w-full h-full flex flex-col animate-in zoom-in duration-300">
-                        {/* Result Header */}
-                        <div className="text-center mb-8">
-                            {activeCase.status === CaseStatus.GUILTY ? (
-                                <div className="inline-block border-8 border-asker-red px-12 py-4 rounded-2xl bg-asker-red/10 rotate-[-2deg] shadow-[0_0_50px_rgba(160,20,0,0.5)]">
-                                     <h1 className="text-8xl font-black text-asker-red uppercase tracking-tighter">SKYLDIG</h1>
-                                </div>
+            {/* --- ZONE 3: WITNESS / VOTING / RESULTS (Right) --- */}
+            <div className={`relative transition-all duration-500 rounded-2xl overflow-hidden border ${speaker === 'WITNESS' || isVoting || isFinished ? 'bg-[#0a0e12] border-asker-gold shadow-[0_0_50px_rgba(255,230,110,0.1)]' : 'bg-[#0a0e12]/50 border-white/5 opacity-60'}`}>
+                <div className="h-full p-10 flex flex-col items-center justify-center text-center">
+                    
+                    {/* Mode: WITNESS SPEAKING */}
+                    {!isVoting && !isFinished && (
+                         <div className="flex flex-col items-center">
+                            {speaker === 'WITNESS' ? (
+                                <>
+                                    <div className="w-24 h-24 bg-asker-gold/10 rounded-full flex items-center justify-center mb-8 border border-asker-gold/20">
+                                        <Mic size={40} className="text-asker-gold" />
+                                    </div>
+                                    <h2 className="text-4xl font-serif text-white mb-4">Vitneboks</h2>
+                                    <p className="text-xl text-slate-400">Ordet er fritt (Salen)</p>
+                                    <div className="mt-8 px-4 py-1.5 bg-asker-gold/10 text-asker-gold border border-asker-gold/30 rounded uppercase tracking-widest text-xs font-bold">
+                                        Mikrofon Åpen
+                                    </div>
+                                </>
                             ) : (
-                                <div className="inline-block border-8 border-green-500 px-12 py-4 rounded-2xl bg-green-500/10 rotate-[-2deg] shadow-[0_0_50px_rgba(34,197,94,0.5)]">
-                                     <h1 className="text-8xl font-black text-green-500 uppercase tracking-tighter">FRIKJENT</h1>
-                                </div>
+                                <>
+                                    <div className="opacity-30 grayscale">
+                                        <Scale size={64} className="mx-auto text-slate-500 mb-6" />
+                                        <h2 className="text-3xl font-serif text-slate-500 mb-4">Juryen Lytter</h2>
+                                        <p className="text-lg text-slate-600">Avventer dommer...</p>
+                                    </div>
+                                </>
                             )}
-                        </div>
+                         </div>
+                    )}
 
-                        {/* Chart Reveal */}
-                        <div className="flex-1 w-full px-12">
-                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={chartData}>
-                                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={24} fontWeight="bold" tickLine={false} axisLine={false} />
-                                    <YAxis hide />
-                                    <Bar dataKey="count" radius={[10, 10, 0, 0]} animationDuration={1500}>
-                                        {chartData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.color} />
-                                        ))}
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
+                    {/* Mode: VOTING */}
+                    {isVoting && (
+                        <div className="w-full h-full flex flex-col items-center justify-center">
+                            <h2 className="text-2xl font-bold text-center mb-12 text-asker-gold uppercase tracking-[0.2em]">Domstolens Avstemning</h2>
+                            
+                            <div className="relative mb-8">
+                                    <div className="text-9xl font-bold text-white leading-none font-mono tabular-nums">
+                                        {totalVotes}
+                                    </div>
+                                    <div className="text-xl text-slate-500 font-medium mt-4">
+                                        Stemmer Avgitt
+                                    </div>
+                            </div>
                         </div>
-                    </div>
-                )}
-                
-                {/* Background effect for verdict */}
-                {showVerdict && (
-                    <div className={`absolute inset-0 z-0 opacity-10 ${activeCase.status === CaseStatus.GUILTY ? 'bg-asker-red' : 'bg-green-600'} mix-blend-overlay`} />
-                )}
+                    )}
+
+                    {/* Mode: COUNTDOWN */}
+                    {countdown !== null && countdown > 0 && (
+                        <div className="absolute inset-0 z-50 bg-[#05080a] flex items-center justify-center">
+                            <div className="text-[12rem] font-bold text-asker-gold font-mono tabular-nums">
+                                {countdown}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Mode: VERDICT */}
+                    {isFinished && showVerdict && (
+                        <div className="w-full h-full flex flex-col justify-center">
+                            <div className="mb-16">
+                                {activeCase.status === CaseStatus.GUILTY ? (
+                                    <div className="inline-block border-4 border-asker-red px-10 py-6 rounded bg-asker-red/10 text-asker-red">
+                                            <h1 className="text-6xl font-bold uppercase tracking-tight">SKYLDIG</h1>
+                                    </div>
+                                ) : (
+                                    <div className="inline-block border-4 border-green-500 px-10 py-6 rounded bg-green-500/10 text-green-500">
+                                            <h1 className="text-6xl font-bold uppercase tracking-tight">FRIKJENT</h1>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="w-full h-48">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={chartData}>
+                                        <Bar dataKey="count" radius={[4, 4, 0, 0]} animationDuration={1000}>
+                                            {chartData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.color} />
+                                            ))}
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     </div>

@@ -1,3 +1,4 @@
+
 export enum Role {
   JUDGE = 'JUDGE',
   LAWYER = 'LAWYER',
@@ -38,6 +39,7 @@ export interface Case {
   votes?: Record<string, Vote>;
   // Remote Control State
   focusMode: 'OVERVIEW' | 'DEFENDANT' | 'EVIDENCE'; 
+  speaker: 'JUDGE' | 'DEFENSE' | 'WITNESS'; // Who has the floor
 }
 
 export interface Session {
