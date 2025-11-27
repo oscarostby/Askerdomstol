@@ -18,7 +18,7 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
   const jury = users.filter(u => u.role === Role.JURY);
   
   // Protests State
-  const [activeProtests, setActiveProtests] = useState<{name: string, uid: string}[]>([]);
+  const [activeProtests, setActiveProtests] = useState<{name: string, uid: string, timestamp: number}[]>([]);
 
   // Listen for protests explicitly for visual stacking
   useEffect(() => {
@@ -26,11 +26,16 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
     const listener = onValue(protestsRef, (snapshot) => {
         if (snapshot.exists()) {
             const data = snapshot.val();
-            // Map uids to names
-            const protestList = Object.keys(data).map(uid => {
+            // Map uids to names and sort by timestamp
+            const protestList = Object.entries(data).map(([uid, timestamp]) => {
                 const user = users.find(u => u.uid === uid);
-                return { name: user ? user.name : 'Ukjent', uid };
-            });
+                return { 
+                    name: user ? user.name : 'Ukjent', 
+                    uid, 
+                    timestamp: timestamp as number 
+                };
+            }).sort((a, b) => a.timestamp - b.timestamp);
+            
             setActiveProtests(protestList);
         } else {
             setActiveProtests([]);
@@ -45,8 +50,7 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
   const yesVotes = votes.filter(v => v.verdict === 'YES').length;
   const noVotes = votes.filter(v => v.verdict === 'NO').length;
   const totalVotes = yesVotes + noVotes;
-  const totalJury = jury.length;
-
+  
   const chartData = [
     { name: 'SKYLDIG', count: yesVotes, color: '#A01400' }, // Red
     { name: 'FRIKJENT', count: noVotes, color: '#22c55e' }, // Green
@@ -58,16 +62,20 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
   const prevStatusRef = useRef<CaseStatus>(CaseStatus.IDLE);
 
   useEffect(() => {
-    // Detect transition to Verdict
+    // Detect transition to Verdict (From Voting -> Guilty/NotGuilty)
     if (
       (activeCase?.status === CaseStatus.GUILTY || activeCase?.status === CaseStatus.NOT_GUILTY) &&
       prevStatusRef.current === CaseStatus.VOTING
     ) {
       setCountdown(5);
       setShowVerdict(false);
-    } else if (activeCase?.status === CaseStatus.GUILTY || activeCase?.status === CaseStatus.NOT_GUILTY) {
+    } 
+    // If we load the page and it is already finished (no transition), show immediately
+    else if (activeCase?.status === CaseStatus.GUILTY || activeCase?.status === CaseStatus.NOT_GUILTY) {
       if (countdown === null) setShowVerdict(true);
-    } else {
+    } 
+    // Reset if we go back to IDLE or VOTING
+    else {
       setShowVerdict(false);
       setCountdown(null);
     }
@@ -77,13 +85,15 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
     }
   }, [activeCase?.status]);
 
-  // Countdown Timer
+  // Countdown Timer Logic
   useEffect(() => {
     if (countdown === null) return;
+    
     if (countdown > 0) {
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
       return () => clearTimeout(timer);
     } else {
+      // Countdown finished
       setShowVerdict(true);
     }
   }, [countdown]);
@@ -91,7 +101,7 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
   // --- LOBBY VIEW ---
   if (!activeCase) {
     return (
-      <div className="flex flex-col h-full bg-[#05080a] relative overflow-hidden">
+      <div className="flex flex-col h-full bg-[#05080a] relative overflow-hidden font-sans">
         
         <header className="p-10 flex justify-between items-center z-10">
             <div className="flex items-center gap-6">
@@ -132,7 +142,8 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
                      {users.map((u, i) => (
                          <div 
                             key={u.uid} 
-                            className="bg-[#0f151a] text-slate-200 px-5 py-2 rounded border border-white/5 font-medium text-lg"
+                            className="bg-[#0f151a] text-slate-200 px-5 py-2 rounded border border-white/5 font-medium text-lg animate-in fade-in slide-in-from-bottom duration-300"
+                            style={{ animationDelay: `${i * 50}ms` }}
                          >
                              {u.name}
                          </div>
@@ -148,19 +159,30 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
   const speaker = activeCase.speaker || 'JUDGE'; // JUDGE, DEFENSE, WITNESS
   const isVoting = activeCase.status === CaseStatus.VOTING;
   const isFinished = activeCase.status === CaseStatus.GUILTY || activeCase.status === CaseStatus.NOT_GUILTY;
+  const isCountingDown = countdown !== null && countdown > 0;
 
   return (
     <div className="flex flex-col h-full p-6 relative overflow-hidden bg-[#05080a]">
         
-        {/* PROTEST OVERLAY (Stack) */}
-        <div className="absolute top-24 right-12 z-50 flex flex-col gap-3 pointer-events-none">
+        {/* PROTEST OVERLAY (Visual Stack) */}
+        <div className="absolute top-24 right-12 z-40 w-96 pointer-events-none perspective-[1000px]">
             {activeProtests.map((p, i) => (
-                <div key={p.uid} className="transition-all duration-300 flex items-center gap-4 bg-asker-red text-white pl-4 pr-8 py-4 rounded shadow-2xl border-l-4 border-white">
-                    <AlertTriangle size={32} />
-                    <div>
-                        <h2 className="text-lg font-bold uppercase tracking-wider">Protest</h2>
-                        <p className="text-xl font-serif italic">{p.name}</p>
-                    </div>
+                <div 
+                    key={p.uid} 
+                    className="absolute top-0 right-0 w-full transition-all duration-500 ease-out flex items-center gap-4 bg-asker-red text-white pl-5 pr-6 py-5 rounded-lg shadow-2xl border-l-4 border-white animate-in slide-in-from-right fade-in"
+                    style={{
+                        transform: `translate3d(0, ${i * 70}px, ${-i * 50}px) scale(${1 - i * 0.05})`,
+                        zIndex: 50 - i,
+                        opacity: i > 3 ? 0 : Math.max(0, 1 - i * 0.15) // Hide after 4th item to reduce clutter
+                    }}
+                >
+                     <div className="bg-white/20 p-3 rounded-full animate-pulse shadow-inner">
+                        <AlertTriangle size={28} />
+                     </div>
+                     <div>
+                        <h2 className="text-xs font-bold uppercase tracking-widest opacity-80 mb-0.5">Protest!</h2>
+                        <p className="text-2xl font-serif font-bold italic leading-none">{p.name}</p>
+                     </div>
                 </div>
             ))}
         </div>
@@ -186,7 +208,7 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
                              <h2 className="text-slate-500 uppercase tracking-widest text-xs font-bold mb-2">Tiltalte</h2>
                              <div className="text-5xl font-bold text-white">{activeCase.defendantName}</div>
                         </div>
-                        {speaker === 'DEFENSE' && <Mic size={32} className="text-asker-blue" />}
+                        {speaker === 'DEFENSE' && <Mic size={32} className="text-asker-blue animate-pulse" />}
                     </div>
                     
                     <div className="space-y-10 mt-auto">
@@ -215,11 +237,11 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
                 <div className="h-full p-10 flex flex-col items-center justify-center text-center">
                     
                     {/* Mode: WITNESS SPEAKING */}
-                    {!isVoting && !isFinished && (
+                    {!isVoting && !isFinished && !isCountingDown && (
                          <div className="flex flex-col items-center">
                             {speaker === 'WITNESS' ? (
                                 <>
-                                    <div className="w-24 h-24 bg-asker-gold/10 rounded-full flex items-center justify-center mb-8 border border-asker-gold/20">
+                                    <div className="w-24 h-24 bg-asker-gold/10 rounded-full flex items-center justify-center mb-8 border border-asker-gold/20 animate-[pulse_3s_infinite]">
                                         <Mic size={40} className="text-asker-gold" />
                                     </div>
                                     <h2 className="text-4xl font-serif text-white mb-4">Vitneboks</h2>
@@ -241,9 +263,9 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
                     )}
 
                     {/* Mode: VOTING */}
-                    {isVoting && (
-                        <div className="w-full h-full flex flex-col items-center justify-center">
-                            <h2 className="text-2xl font-bold text-center mb-12 text-asker-gold uppercase tracking-[0.2em]">Domstolens Avstemning</h2>
+                    {isVoting && !isCountingDown && (
+                        <div className="w-full h-full flex flex-col items-center justify-center animate-in fade-in zoom-in duration-300">
+                            <h2 className="text-2xl font-bold text-center mb-12 text-asker-gold uppercase tracking-[0.2em] animate-pulse">Domstolens Avstemning</h2>
                             
                             <div className="relative mb-8">
                                     <div className="text-9xl font-bold text-white leading-none font-mono tabular-nums">
@@ -256,33 +278,43 @@ export const BigScreen: React.FC<BigScreenProps> = ({ pin, users, activeCase }) 
                         </div>
                     )}
 
-                    {/* Mode: COUNTDOWN */}
-                    {countdown !== null && countdown > 0 && (
-                        <div className="absolute inset-0 z-50 bg-[#05080a] flex items-center justify-center">
-                            <div className="text-[12rem] font-bold text-asker-gold font-mono tabular-nums">
+                    {/* Mode: COUNTDOWN (Overlay) */}
+                    {isCountingDown && (
+                        <div className="absolute inset-0 z-50 bg-[#05080a] flex flex-col items-center justify-center animate-in fade-in duration-200">
+                             <div className="text-asker-blue text-2xl font-bold uppercase tracking-[0.5em] mb-12 animate-pulse">
+                                Dommen faller om
+                            </div>
+                            <div 
+                                key={countdown} 
+                                className="text-[12rem] font-bold text-asker-gold font-mono tabular-nums animate-[ping_1s_cubic-bezier(0,0,0.2,1)_1]"
+                            >
                                 {countdown}
+                            </div>
+                             <div className="mt-12 text-slate-600 font-mono text-sm uppercase tracking-widest">
+                                Avstemning Stengt
                             </div>
                         </div>
                     )}
 
-                    {/* Mode: VERDICT */}
-                    {isFinished && showVerdict && (
-                        <div className="w-full h-full flex flex-col justify-center">
-                            <div className="mb-16">
+                    {/* Mode: VERDICT REVEAL */}
+                    {isFinished && showVerdict && !isCountingDown && (
+                        <div className="w-full h-full flex flex-col justify-center animate-in zoom-in duration-500">
+                            <div className="mb-12">
                                 {activeCase.status === CaseStatus.GUILTY ? (
-                                    <div className="inline-block border-4 border-asker-red px-10 py-6 rounded bg-asker-red/10 text-asker-red">
-                                            <h1 className="text-6xl font-bold uppercase tracking-tight">SKYLDIG</h1>
+                                    <div className="inline-block border-8 border-asker-red px-12 py-8 rounded bg-asker-red text-white shadow-[0_0_100px_rgba(160,20,0,0.5)]">
+                                            <h1 className="text-7xl font-bold uppercase tracking-tight">SKYLDIG</h1>
                                     </div>
                                 ) : (
-                                    <div className="inline-block border-4 border-green-500 px-10 py-6 rounded bg-green-500/10 text-green-500">
-                                            <h1 className="text-6xl font-bold uppercase tracking-tight">FRIKJENT</h1>
+                                    <div className="inline-block border-8 border-green-500 px-12 py-8 rounded bg-green-500 text-white shadow-[0_0_100px_rgba(34,197,94,0.5)]">
+                                            <h1 className="text-7xl font-bold uppercase tracking-tight">FRIKJENT</h1>
                                     </div>
                                 )}
                             </div>
-                            <div className="w-full h-48">
-                                    <ResponsiveContainer width="100%" height="100%">
+                            <div className="w-full h-48 px-12">
+                                <ResponsiveContainer width="100%" height="100%">
                                     <BarChart data={chartData}>
-                                        <Bar dataKey="count" radius={[4, 4, 0, 0]} animationDuration={1000}>
+                                        <XAxis dataKey="name" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
+                                        <Bar dataKey="count" radius={[4, 4, 0, 0]} animationDuration={1500}>
                                             {chartData.map((entry, index) => (
                                                 <Cell key={`cell-${index}`} fill={entry.color} />
                                             ))}
